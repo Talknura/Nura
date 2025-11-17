@@ -1,0 +1,11 @@
+# Nura
+An AI companion for emotional support and voice-based conversation.
+
+This is the development log, prototype code, and research notes for the Nura voice AI project.
+
+Built using:
+- OpenAI GPT models
+- OpenAI TTS
+- n8n workflows
+- HTML/JS prototype UI
+- Two-stream audio processing system (my own innovation)
