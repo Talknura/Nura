@@ -174,26 +174,6 @@ This project follows a **phase-gated development approach**:
 - **API Framework:** FastAPI
 - **Testing:** pytest
 
-## Installation (Development)
-```bash
-# Clone repository
-git clone https://github.com/Talknura/nura.git
-cd nura
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests
-pytest tests/
-
-# Start API server
-uvicorn api.main:app --reload
-```
-
 ## Academic Context
 
 This work is being developed as part of:
