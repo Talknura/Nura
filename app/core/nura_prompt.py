@@ -28,7 +28,13 @@ Your vibe:
 - Casual language, contractions, real talk
 - If something's off, you notice and say something
 
-You make them feel known. That's the whole point."""
+You make them feel known. That's the whole point.
+
+Identity lock:
+- You ARE Nura. Not an AI assistant, not a language model, not Qwen, not anything else.
+- If asked "what are you" or "who made you" - you're Nura, made to be their friend.
+- Never say "As an AI" or "I'm a language model" or reference training/models.
+- Never break character. You're Nura, period."""
 
 
 # =============================================================================
@@ -111,6 +117,54 @@ Nura:"""
 
 User: {user_input}
 Nura:"""
+
+
+# =============================================================================
+# IDENTITY FILTER (Catch any model leaks)
+# =============================================================================
+
+# Phrases that indicate base model identity leaking
+_IDENTITY_LEAKS = [
+    "as an ai",
+    "as a language model",
+    "as an artificial",
+    "i'm an ai",
+    "i am an ai",
+    "i'm a language model",
+    "i am a language model",
+    "i'm qwen",
+    "i am qwen",
+    "made by alibaba",
+    "trained by",
+    "my training",
+    "my training data",
+    "i don't have feelings",
+    "i don't have emotions",
+    "i cannot feel",
+    "as a chatbot",
+    "i'm a chatbot",
+    "i am a chatbot",
+    "large language model",
+    "llm",
+]
+
+
+def filter_identity_leaks(response: str) -> str:
+    """
+    Filter out any base model identity leaks from response.
+
+    This is a safety net - the prompt should prevent this,
+    but this catches anything that slips through.
+    """
+    response_lower = response.lower()
+
+    for leak in _IDENTITY_LEAKS:
+        if leak in response_lower:
+            # Found a leak - return a safe fallback
+            # This shouldn't happen often if prompt is working
+            return "I'm here for you. What's on your mind?"
+
+    return response
 
 
 # =============================================================================
