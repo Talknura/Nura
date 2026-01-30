@@ -1238,15 +1238,37 @@ class BackboneLayer:
         return full_response.strip(), timing
 
     def _build_voice_prompt(self, ctx: BackboneContext) -> str:
-        """Build minimal prompt for voice (fast TTFT)."""
-        context = ""
+        """
+        Build clean Nura prompt for voice pipeline.
 
-        if ctx.retrieval_result and hasattr(ctx.retrieval_result, 'hits') and ctx.retrieval_result.hits:
-            hits = ctx.retrieval_result.hits[:2]
-            parts = [h.get('content', '')[:80] for h in hits]
-            context = "Context: " + " | ".join(parts) + "\n"
+        Uses simple, natural language instead of "engine outputs".
+        """
+        try:
+            from app.core.nura_prompt import build_nura_prompt, format_retrieval_for_prompt
+        except ImportError:
+            # Fallback to minimal prompt
+            return f"You are Nura, a caring AI companion.\n\nUser: {ctx.user_input}\nNura:"
 
-        return f"{context}User: {ctx.user_input}\nAssistant:"
+        # Format retrieval if available
+        retrieved_context = None
+        if ctx.retrieval_result:
+            retrieved_context = format_retrieval_for_prompt(ctx.retrieval_result)
+
+        # Get time of day from temporal context
+        time_of_day = None
+        if ctx.temporal_context:
+            for t in ["morning", "afternoon", "evening", "night"]:
+                if ctx.temporal_context.get(t):
+                    time_of_day = t
+                    break
+
+        # Build clean prompt
+        return build_nura_prompt(
+            user_input=ctx.user_input,
+            memories=None,  # Memories loaded separately if needed
+            retrieved_context=retrieved_context,
+            time_of_day=time_of_day
+        )
 
     def _synthesize_and_output(self, text: str, on_audio: Callable[[bytes], None]) -> None:
         """Synthesize text and send to audio output."""
