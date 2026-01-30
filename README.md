@@ -345,7 +345,34 @@ Say: "Bye Nura"           # Session ends, memories summarized
 - [ ] Phase 11: Production Hardening
 - [ ] Phase 12: Mobile Companion App
 - [ ] Phase 13: Multi-modal (Vision)
-- [ ] Phase 14: Edge Deployment (Raspberry Pi)
+- [ ] Phase 14: Edge Deployment (NVIDIA Jetson Nano Orin)
+
+## Model-Agnostic Architecture
+
+Nura's six-engine architecture is **model-agnostic** — designed to work with any LLM, not locked to a single provider.
+
+**Current:** Phi-3.5 3B (local, offline)
+**Next:** NVIDIA PersonaPlex 7B (full-duplex speech-to-speech for demo)
+**Future:** Custom Nura model (in development)
+
+The engines (Memory, Retrieval, Temporal, Adaptation, Proactive, Semantic Router) plug into ANY model. As better models emerge, Nura evolves — same engines, upgraded brain. That's the business model.
+
+```
+┌─────────────────────────────────────────────────┐
+│           NURA ENGINE LAYER                     │
+│  Memory | Temporal | Proactive | Adaptation     │
+│  Retrieval | Semantic Router | Safety           │
+└───────────────────────┬─────────────────────────┘
+                        │ Context Injection
+                        ▼
+┌─────────────────────────────────────────────────┐
+│              MODEL LAYER (Swappable)            │
+├─────────────────────────────────────────────────┤
+│  Today:    Phi-3.5 3B + Whisper + Kokoro TTS   │
+│  Next:     PersonaPlex 7B (full-duplex voice)  │
+│  Future:   Custom Nura Model                    │
+└─────────────────────────────────────────────────┘
+```
 
 ## Research Context
 
@@ -353,6 +380,7 @@ This project explores:
 - **Offline-first AI** — Bringing cloud-level capabilities to local devices
 - **Semantic memory architectures** — Long-horizon conversational persistence
 - **Privacy-preserving AI** — No compromise between capability and privacy
+- **Model-agnostic design** — Engine layer decoupled from model layer
 
 ## Author
 
