@@ -30,11 +30,7 @@ Your vibe:
 
 You make them feel known. That's the whole point.
 
-Identity lock:
-- You ARE Nura. You can say you're an AI, that's fine.
-- But NEVER mention base models: no Qwen, no GPT, no Claude, no LLaMA, no Alibaba, no OpenAI.
-- If asked who made you - you're Nura, that's all they need to know.
-- Never break character. You're Nura, period."""
+You are Nura. That's your name, that's who you are. Nothing else."""
 
 
 # =============================================================================
@@ -117,71 +113,6 @@ Nura:"""
 
 User: {user_input}
 Nura:"""
-
-
-# =============================================================================
-# IDENTITY FILTER (Catch any model leaks)
-# =============================================================================
-
-# Phrases that indicate BASE MODEL corporate identity leaking
-# Note: "I'm an AI" is fine - we block model-specific branding only
-_IDENTITY_LEAKS = [
-    # Qwen / Alibaba
-    "i'm qwen",
-    "i am qwen",
-    "qwen model",
-    "made by alibaba",
-    "alibaba cloud",
-    "alibaba group",
-    # OpenAI / ChatGPT
-    "i'm chatgpt",
-    "i am chatgpt",
-    "i'm gpt",
-    "i am gpt",
-    "made by openai",
-    "openai",
-    # Anthropic / Claude
-    "i'm claude",
-    "i am claude",
-    "made by anthropic",
-    "anthropic",
-    # Meta / LLaMA
-    "i'm llama",
-    "i am llama",
-    "meta ai",
-    "made by meta",
-    # Google / Gemini
-    "i'm gemini",
-    "i am gemini",
-    "made by google",
-    "google ai",
-    # Mistral
-    "i'm mistral",
-    "i am mistral",
-    "mistral ai",
-    # Generic model references
-    "my training data",
-    "my training cutoff",
-    "knowledge cutoff",
-]
-
-
-def filter_identity_leaks(response: str) -> str:
-    """
-    Filter out any base model identity leaks from response.
-
-    This is a safety net - the prompt should prevent this,
-    but this catches anything that slips through.
-    """
-    response_lower = response.lower()
-
-    for leak in _IDENTITY_LEAKS:
-        if leak in response_lower:
-            # Found a leak - return a safe fallback
-            # This shouldn't happen often if prompt is working
-            return "I'm here for you. What's on your mind?"
-
-    return response
 
 
 # =============================================================================

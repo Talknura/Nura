@@ -966,13 +966,6 @@ class BackboneLayer:
             llm_output = self._generate_fallback(ctx)
         ctx.timing["llm"] = (time.perf_counter() - llm_start) * 1000
 
-        # Filter any base model identity leaks (branding protection)
-        try:
-            from app.core.nura_prompt import filter_identity_leaks
-            llm_output = filter_identity_leaks(llm_output)
-        except ImportError:
-            pass
-
         # === ASYNC OPERATIONS (after response) ===
         async_tasks = self.queue_async_operations(ctx, llm_output)
 
@@ -1242,14 +1235,7 @@ class BackboneLayer:
         tts_queue.put(None)
         tts_thread.join(timeout=10.0)
 
-        # Filter any base model identity leaks
-        try:
-            from app.core.nura_prompt import filter_identity_leaks
-            full_response = filter_identity_leaks(full_response.strip())
-        except ImportError:
-            full_response = full_response.strip()
-
-        return full_response, timing
+        return full_response.strip(), timing
 
     def _build_voice_prompt(self, ctx: BackboneContext) -> str:
         """
@@ -1258,7 +1244,7 @@ class BackboneLayer:
         Uses simple, natural language instead of "engine outputs".
         """
         try:
-            from app.core.nura_prompt import build_nura_prompt, format_retrieval_for_prompt, filter_identity_leaks
+            from app.core.nura_prompt import build_nura_prompt, format_retrieval_for_prompt
         except ImportError:
             # Fallback to minimal prompt
             return f"You are Nura, a caring AI companion.\n\nUser: {ctx.user_input}\nNura:"
