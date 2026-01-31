@@ -64,7 +64,7 @@ class Qwen3StreamingLLM(PhiStreamingLLM):
         n_ctx: int = 4096,  # Fits system + engines + response
         n_threads: Optional[int] = None,
         n_gpu_layers: Optional[int] = None,
-        max_new_tokens: int = 256,  # Longer responses for conversation
+        max_new_tokens: int = 512,  # Includes Qwen3 thinking (~400) + response (~100)
     ) -> None:
         # Use NURA_LLM_MODEL env var (more generic than NURA_PHI_MODEL)
         if model_path is None:
@@ -97,7 +97,10 @@ class Qwen3StreamingLLM(PhiStreamingLLM):
             top_p=0.9,
             stream=True,
             repeat_penalty=1.1,
-            stop=["User:", "\n\nUser:", "\nUser:", "<|im_end|>", "<|endoftext|>"],
+            stop=[
+                "<|im_end|>",  # Primary stop token for Qwen3
+                "<|endoftext|>",  # Model end token
+            ],
         ):
             token = chunk["choices"][0]["text"]
             acc += token
@@ -349,7 +352,7 @@ def get_streaming_llm(model_path: Optional[str] = None) -> Qwen3StreamingLLM:
             model_path=model_path,
             n_ctx=4096,
             n_gpu_layers=-1,  # All GPU
-            max_new_tokens=256
+            max_new_tokens=100  # Reduced for faster TTS (~800ms target)
         )
     return _llm_instance
 

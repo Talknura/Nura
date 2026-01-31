@@ -12,6 +12,53 @@ import json
 import os
 
 from app.memory.memory_engine import MemoryEngine
+
+
+def sanitize_text(text: str) -> str:
+    """Sanitize text by replacing curly quotes with straight quotes."""
+    if not text:
+        return text
+    replacements = {
+        '\u2019': "'",  # Right single quote
+        '\u2018': "'",  # Left single quote
+        '\u201c': '"',  # Left double quote
+        '\u201d': '"',  # Right double quote
+        '\u2014': '-',  # Em dash
+        '\u2013': '-',  # En dash
+        '\u2026': '...',  # Ellipsis
+    }
+    for unicode_char, ascii_char in replacements.items():
+        text = text.replace(unicode_char, ascii_char)
+    return text
+
+
+def sanitize_header(text: str, max_length: int = 500) -> str:
+    """Sanitize text for HTTP headers (ASCII-safe, no newlines)."""
+    # Replace common Unicode characters with ASCII equivalents
+    replacements = {
+        '\u2019': "'",  # Right single quote
+        '\u2018': "'",  # Left single quote
+        '\u201c': '"',  # Left double quote
+        '\u201d': '"',  # Right double quote
+        '\u2014': '-',  # Em dash
+        '\u2013': '-',  # En dash
+        '\u2026': '...',  # Ellipsis
+        '\u00a0': ' ',  # Non-breaking space
+        '\n': ' ',  # Newline -> space
+        '\r': ' ',  # Carriage return -> space
+        '\t': ' ',  # Tab -> space
+    }
+    for unicode_char, ascii_char in replacements.items():
+        text = text.replace(unicode_char, ascii_char)
+    # Collapse multiple spaces
+    while '  ' in text:
+        text = text.replace('  ', ' ')
+    # Encode to ASCII, replacing any remaining non-ASCII with ?
+    text = text.encode('ascii', 'replace').decode('ascii')
+    # Truncate to max length
+    if len(text) > max_length:
+        text = text[:max_length - 3] + '...'
+    return text.strip()
 from app.temporal.temporal_engine import TemporalEngine, get_temporal_engine
 from app.adaptation.adaptation_engine import AdaptationEngine
 from app.adaptation.breakthrough_detector import detect_breakthrough
@@ -145,7 +192,7 @@ async def chat(request: ChatRequest):
                 content=json.dumps(payload, ensure_ascii=True).encode("utf-8"),
                 media_type="application/json",
                 headers={
-                    "X-Response-Text": refusal_text,
+                    "X-Response-Text": sanitize_header(refusal_text),
                     "X-Emotion": "neutral",
                     "X-Memory-Count": "0",
                     "X-Nura-Warmth": "0.50",
@@ -184,7 +231,8 @@ async def chat(request: ChatRequest):
                     emotion=emotion,
                     use_gpt4=False
                 )
-                response_text = plain_text_response
+                response_text = sanitize_text(plain_text_response)
+                plain_text_response = response_text
             except Exception:
                 fallback_state = RetrievalResult(hits=[], facts={}, milestones=[], strategy_used=RetrievalStrategy.HYBRID, query_analysis=QueryAnalysis(strategy=RetrievalStrategy.HYBRID, confidence=0.0))
                 plain_text_response = _generate_response(
@@ -195,7 +243,8 @@ async def chat(request: ChatRequest):
                     temporal_tags=temporal_tags,
                     emotion=emotion
                 )
-                response_text = plain_text_response
+                response_text = sanitize_text(plain_text_response)
+                plain_text_response = response_text
             tracker.end("generation")
 
             # Voice
@@ -234,7 +283,7 @@ async def chat(request: ChatRequest):
                 content=audio_bytes,
                 media_type=media_type,
                 headers={
-                    "X-Response-Text": plain_text_response,
+                    "X-Response-Text": sanitize_header(plain_text_response),
                     "X-Emotion": emotion,
                     "X-Memory-Count": str(memory_count),
                     "X-Nura-Warmth": f"{profile['warmth']:.2f}",
@@ -314,7 +363,8 @@ async def chat(request: ChatRequest):
                 emotion=emotion,
                 use_gpt4=False
             )
-            response_text = plain_text_response
+            response_text = sanitize_text(plain_text_response)
+            plain_text_response = response_text
             primary_emotion = None
             secondary_emotion = None
             print(f"[BRAIN] Local LLM response generated ({len(plain_text_response)} characters)")
@@ -328,7 +378,8 @@ async def chat(request: ChatRequest):
                 temporal_tags=temporal_tags,
                 emotion=emotion
             )
-            response_text = plain_text_response
+            response_text = sanitize_text(plain_text_response)
+            plain_text_response = response_text
             primary_emotion = None
             secondary_emotion = None
             print(f"[BRAIN] Fallback response generated ({len(plain_text_response)} characters)")
@@ -406,14 +457,14 @@ async def chat(request: ChatRequest):
             content=audio_bytes,
             media_type=media_type,
             headers={
-                "X-Response-Text": plain_text_response,  # Phase 11: Return plain text (no SSML in headers)
+                "X-Response-Text": sanitize_header(plain_text_response),  # ASCII-safe
                 "X-Emotion": emotion,
                 "X-Memory-Count": str(memory_count),
                 "X-Nura-Warmth": f"{profile['warmth']:.2f}",
                 "X-Nura-Formality": f"{profile['formality']:.2f}",
                 "X-Nura-Initiative": f"{profile['initiative']:.2f}",
-                "X-Primary-Emotion": primary_emotion if primary_emotion else emotion,  # Phase 11: Cartesia emotion
-                "X-Secondary-Emotion": secondary_emotion if secondary_emotion else ""  # Phase 11: Secondary emotion
+                "X-Primary-Emotion": primary_emotion if primary_emotion else emotion,
+                "X-Secondary-Emotion": secondary_emotion if secondary_emotion else ""
             }
         )
 
@@ -432,7 +483,7 @@ async def chat(request: ChatRequest):
         except:
             print("[NURA] Traceback unavailable (encoding error)")
 
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise HTTPException(status_code=500, detail=sanitize_header(error_msg, max_length=1000))
 
 
 def _parse_user_id(user_id_str: str) -> int:

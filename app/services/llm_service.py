@@ -66,9 +66,9 @@ class LLMService:
         if llm is None:
             return self._fallback_response(user_message, profile, emotion)
 
-        # Build prompt using nura_prompt
+        # Build prompt using Qwen3 chat format
         try:
-            from app.core.nura_prompt import build_nura_prompt
+            from app.core.nura_prompt import NURA_IDENTITY
 
             # Extract memory content
             memory_strings = []
@@ -84,15 +84,40 @@ class LLMService:
                     time_of_day = t
                     break
 
-            prompt = build_nura_prompt(
-                user_input=user_message,
-                memories=memory_strings if memory_strings else None,
-                time_of_day=time_of_day,
-                adaptation_profile=profile
-            )
+            # Build context
+            context_parts = []
+            if memory_strings:
+                context_parts.append("What you know about them:\n- " + "\n- ".join(memory_strings))
+            if time_of_day:
+                context_parts.append(f"It's {time_of_day}.")
+
+            system_content = NURA_IDENTITY
+            if context_parts:
+                system_content += "\n\n" + "\n".join(context_parts)
+
+            # Qwen3 chat format (no thinking mode - prefill empty think block)
+            prompt = f"""<|im_start|>system
+{system_content}<|im_end|>
+<|im_start|>user
+{user_message}<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"""
         except ImportError:
-            # Fallback prompt
-            prompt = f"You are Nura, a caring AI companion.\n\nUser: {user_message}\nNura:"
+            # Fallback prompt (with no-think prefill)
+            prompt = f"""<|im_start|>system
+You are Nura, a caring AI companion. Be concise and friendly.<|im_end|>
+<|im_start|>user
+{user_message}<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"""
 
         # Generate response
         try:
@@ -101,10 +126,21 @@ class LLMService:
                 if chunk.is_final:
                     response = chunk.text
                     break
+            # Strip Qwen3 thinking tags (if any leaked through)
+            response = self._strip_thinking(response)
             return response.strip()
         except Exception as e:
             print(f"[LLMService] Generation failed: {e}")
             return self._fallback_response(user_message, profile, emotion)
+
+    def _strip_thinking(self, text: str) -> str:
+        """Strip Qwen3 thinking tags from response."""
+        import re
+        # Remove <think>...</think> blocks
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        # Also handle unclosed think tags (stop mid-thinking)
+        text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
+        return text.strip()
 
     def _fallback_response(
         self,
