@@ -583,3 +583,13 @@ def get_temporal_engine() -> TemporalEngineV2:
     if _engine_instance is None:
         _engine_instance = TemporalEngineV2()
     return _engine_instance
+
+
+# Backward-compatible aliases
+TemporalEngine = TemporalEngineV2
+
+
+def temporal_tags_from_dt(dt: datetime) -> Dict[str, Any]:
+    """Backward-compatible function for generating temporal tags from datetime."""
+    engine = get_temporal_engine()
+    return engine.generate_temporal_tags(dt)
