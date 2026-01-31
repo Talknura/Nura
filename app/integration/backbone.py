@@ -72,11 +72,18 @@ import numpy as np
 try:
     from app.memory import get_memory_store
     from app.memory.memory_store import get_facts
+    from app.db import get_db_context
     MEMORY_AVAILABLE = True
 except ImportError:
     MEMORY_AVAILABLE = False
     def get_facts(user_id: int) -> dict:
         return {}
+    def get_db_context():
+        import contextlib
+        @contextlib.contextmanager
+        def _dummy():
+            yield None
+        return _dummy()
 
 # Retrieval Engine
 try:
@@ -961,6 +968,184 @@ class BackboneLayer:
     def is_proactive_pending(self, user_id: int) -> bool:
         """Check if proactive evaluation is still pending."""
         return self._deferred_proactive.is_pending(user_id)
+
+    def trigger_proactive(
+        self,
+        user_id: int,
+        on_audio: Optional[Callable[[bytes], None]] = None
+    ) -> Optional[str]:
+        """
+        Trigger proactive outreach if conditions are met.
+
+        Call this periodically (e.g., every 30s, on app wake, or when idle).
+        If proactive engine says should_ask=True, Nura will speak unprompted.
+
+        Args:
+            user_id: User ID
+            on_audio: Callback for TTS audio (if None, text-only)
+
+        Returns:
+            Nura's proactive message, or None if no proactive triggered
+        """
+        # Check cached proactive result
+        result = self.get_proactive_result(user_id)
+        if not result or not result.get("should_ask"):
+            return None
+
+        # Get memory that triggered proactive
+        memory_id = result.get("memory_id")
+        memory_content = ""
+        if memory_id and self._memory_store:
+            try:
+                # Fetch the specific memory
+                with get_db_context() as conn:
+                    row = conn.execute(
+                        "SELECT content FROM memories WHERE id = ?",
+                        (memory_id,)
+                    ).fetchone()
+                    if row:
+                        memory_content = row["content"]
+            except Exception:
+                pass
+
+        if not memory_content:
+            # No memory content, skip proactive
+            self._deferred_proactive.clear_cache(user_id)
+            return None
+
+        # Get user context
+        user_name = None
+        time_of_day = None
+        try:
+            facts = get_facts(user_id)
+            user_name = (
+                facts.get("user.preferred_name") or
+                facts.get("user.name") or
+                facts.get("name")
+            )
+        except Exception:
+            pass
+
+        # Get time of day
+        now = datetime.now(timezone.utc)
+        hour = now.hour
+        if 5 <= hour < 12:
+            time_of_day = "morning"
+        elif 12 <= hour < 17:
+            time_of_day = "afternoon"
+        elif 17 <= hour < 21:
+            time_of_day = "evening"
+        else:
+            time_of_day = "night"
+
+        # Build proactive prompt
+        try:
+            from app.core.nura_prompt import build_proactive_prompt
+            prompt = build_proactive_prompt(
+                memory_content=memory_content[:200],  # Truncate
+                question_type=result.get("question_type", "check_in"),
+                user_name=user_name,
+                time_of_day=time_of_day
+            )
+        except ImportError:
+            prompt = f"You are Nura. Reach out about: {memory_content[:100]}\nNura:"
+
+        # Generate response via LLM
+        response = ""
+        if self._llm:
+            try:
+                if on_audio and self._tts:
+                    # Stream with TTS
+                    response, _ = self._stream_llm_tts_proactive(prompt, on_audio)
+                else:
+                    # Text only
+                    for chunk in self._llm.stream_generate(prompt):
+                        if chunk.is_final:
+                            response = chunk.text
+                            break
+                    response = response.strip()
+            except Exception as e:
+                print(f"[Backbone] Proactive LLM failed: {e}")
+                return None
+        else:
+            return None
+
+        # Clear the proactive cache (don't repeat)
+        self._deferred_proactive.clear_cache(user_id)
+
+        return response
+
+    def _stream_llm_tts_proactive(
+        self,
+        prompt: str,
+        on_audio: Callable[[bytes], None]
+    ) -> Tuple[str, Dict[str, float]]:
+        """Stream LLM with TTS for proactive (simpler than voice turn)."""
+        timing = {}
+        full_response = ""
+
+        if not self._llm:
+            return "", timing
+
+        # TTS queue
+        tts_queue: queue.Queue[Optional[str]] = queue.Queue()
+
+        def tts_worker():
+            while True:
+                sentence = tts_queue.get()
+                if sentence is None:
+                    break
+                if self._tts:
+                    try:
+                        for chunk in self._tts.synthesize_stream(sentence):
+                            if chunk.audio:
+                                on_audio(chunk.audio)
+                    except Exception:
+                        pass
+
+        tts_thread = threading.Thread(target=tts_worker, daemon=True)
+        tts_thread.start()
+
+        # Stream LLM with sentence buffering
+        try:
+            from app.services.optimized_llm import SentenceStreamBuffer
+
+            def on_sentence(sentence: str):
+                tts_queue.put(sentence)
+
+            buffer = SentenceStreamBuffer(on_sentence=on_sentence)
+
+            for chunk in self._llm.stream_generate(prompt):
+                buffer.feed(chunk.text)
+                if chunk.is_final:
+                    full_response = chunk.text
+                    break
+
+            buffer.flush()
+        except Exception as e:
+            print(f"[Backbone] Proactive stream error: {e}")
+
+        tts_queue.put(None)
+        tts_thread.join(timeout=10.0)
+
+        return full_response.strip(), timing
+
+    def check_and_trigger_proactive(
+        self,
+        user_id: int,
+        on_audio: Optional[Callable[[bytes], None]] = None
+    ) -> Optional[str]:
+        """
+        Convenience method: check if proactive is ready and trigger if so.
+
+        Use this in your main loop or scheduler:
+            message = backbone.check_and_trigger_proactive(user_id, on_audio)
+            if message:
+                print(f"Nura (proactive): {message}")
+        """
+        if self.is_proactive_pending(user_id):
+            return None  # Still evaluating
+        return self.trigger_proactive(user_id, on_audio)
 
     # -------------------------------------------------------------------------
     # FULL PIPELINE

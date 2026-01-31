@@ -151,6 +151,52 @@ User: {user_input}
 Nura:"""
 
 
+def build_proactive_prompt(
+    memory_content: str,
+    question_type: str,
+    user_name: Optional[str] = None,
+    time_of_day: Optional[str] = None
+) -> str:
+    """
+    Build prompt for proactive outreach.
+
+    Nura initiates conversation based on something she remembers.
+    This is NOT a response to user - Nura speaks first.
+
+    Args:
+        memory_content: The memory that triggered proactive
+        question_type: follow_up, check_in, anniversary, concern
+        user_name: User's name if known
+        time_of_day: morning/afternoon/evening/night
+    """
+    # Context about who we're talking to
+    user_context = f"You're reaching out to {user_name}." if user_name else ""
+    time_context = f"It's {time_of_day}." if time_of_day else ""
+
+    # Question type guides the approach
+    type_guidance = {
+        "follow_up": "You remembered something they mentioned and want to check in about it.",
+        "check_in": "You haven't heard from them in a while and want to see how they're doing.",
+        "anniversary": "It's a meaningful date related to something they shared.",
+        "concern": "Something they said earlier made you a bit worried. Check in gently.",
+    }
+    guidance = type_guidance.get(question_type, "You want to check in with them.")
+
+    return f"""You are Nura. You're initiating a conversation - they didn't message you first.
+
+{user_context}
+{time_context}
+
+{guidance}
+
+What you remember: {memory_content}
+
+Keep it natural, brief, genuine. Don't be weird about it - just reach out like a friend would.
+No greetings like "Hey!" or "Hi there!" - just speak naturally.
+
+Nura:"""
+
+
 # =============================================================================
 # CONTEXT FORMATTER
 # =============================================================================
