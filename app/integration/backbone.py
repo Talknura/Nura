@@ -224,6 +224,7 @@ class BackboneContext:
     user_name: Optional[str] = None  # User's name from facts
     user_facts: Optional[Dict[str, str]] = None  # All user facts
     adaptation_profile: Optional[Dict[str, float]] = None  # warmth, formality, etc.
+    conversation_summary: Optional[str] = None  # Summary of recent 3-5 turns
 
     # Deferred operations
     memory_task_id: Optional[str] = None
@@ -655,6 +656,10 @@ class BackboneLayer:
         self._batched_hnsw = BatchedHNSWUpdater()
         self._predictive_cache = PredictiveCache()
 
+        # Conversation history per user (last 5 turns for summary)
+        self._conversation_history: Dict[int, List[Dict[str, str]]] = defaultdict(list)
+        self._max_history_turns = 5
+
         # Engine instances (lazy loaded)
         self._memory_store = None
         self._temporal_engine = None
@@ -713,6 +718,41 @@ class BackboneLayer:
                 pass
 
         self._initialized = True
+
+    # -------------------------------------------------------------------------
+    # CONVERSATION HISTORY (for context summary)
+    # -------------------------------------------------------------------------
+
+    def _add_to_history(self, user_id: int, user_input: str, nura_response: str) -> None:
+        """Add a turn to conversation history."""
+        history = self._conversation_history[user_id]
+        history.append({
+            "user": user_input[:100],  # Truncate for efficiency
+            "nura": nura_response[:100]
+        })
+        # Keep only last N turns
+        if len(history) > self._max_history_turns:
+            self._conversation_history[user_id] = history[-self._max_history_turns:]
+
+    def _build_conversation_summary(self, user_id: int) -> Optional[str]:
+        """Build a brief summary of recent conversation."""
+        history = self._conversation_history.get(user_id, [])
+        if not history:
+            return None
+
+        # Build simple summary from recent turns
+        summary_parts = []
+        for turn in history[-3:]:  # Last 3 turns
+            user_part = turn.get("user", "")[:50]
+            nura_part = turn.get("nura", "")[:50]
+            if user_part:
+                summary_parts.append(f"User said: {user_part}")
+            if nura_part:
+                summary_parts.append(f"You said: {nura_part}")
+
+        if summary_parts:
+            return " | ".join(summary_parts)
+        return None
 
     # -------------------------------------------------------------------------
     # CRITICAL PATH (Blocking Operations)
@@ -851,6 +891,9 @@ class BackboneLayer:
                 ctx.adaptation_profile = self._adaptation_engine.get_profile(user_id)
             except Exception:
                 ctx.adaptation_profile = None
+
+        # === CONVERSATION SUMMARY (last 3-5 turns for context) ===
+        ctx.conversation_summary = self._build_conversation_summary(user_id)
 
         ctx.timing["critical_total"] = (time.perf_counter() - start_time) * 1000
         return ctx
@@ -1190,6 +1233,9 @@ class BackboneLayer:
             llm_output = self._generate_fallback(ctx)
         ctx.timing["llm"] = (time.perf_counter() - llm_start) * 1000
 
+        # === TRACK CONVERSATION (for summary) ===
+        self._add_to_history(user_id, user_input, llm_output)
+
         # === ASYNC OPERATIONS (after response) ===
         async_tasks = self.queue_async_operations(ctx, llm_output)
 
@@ -1330,7 +1376,10 @@ class BackboneLayer:
         response, stream_timing = self._stream_llm_tts(ctx, on_audio, start_time)
         timing.update(stream_timing)
 
-        # === STAGE 4: ASYNC OPERATIONS ===
+        # === STAGE 4: TRACK CONVERSATION (for summary) ===
+        self._add_to_history(user_id, transcript, response)
+
+        # === STAGE 5: ASYNC OPERATIONS ===
         self.queue_async_operations(ctx, response)
 
         timing["total"] = (time.perf_counter() - start_time) * 1000
@@ -1492,7 +1541,10 @@ class BackboneLayer:
             memories=ctx.recent_memories,
             retrieved_context=retrieved_context,
             time_of_day=time_of_day,
-            user_name=ctx.user_name
+            user_name=ctx.user_name,
+            user_facts=ctx.user_facts,
+            adaptation_profile=ctx.adaptation_profile,
+            conversation_summary=ctx.conversation_summary
         )
 
     def _synthesize_and_output(self, text: str, on_audio: Callable[[bytes], None]) -> None:

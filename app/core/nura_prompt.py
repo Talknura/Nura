@@ -67,7 +67,10 @@ def build_nura_prompt(
     memories: Optional[List[str]] = None,
     retrieved_context: Optional[str] = None,
     time_of_day: Optional[str] = None,
-    user_name: Optional[str] = None
+    user_name: Optional[str] = None,
+    user_facts: Optional[Dict[str, str]] = None,
+    adaptation_profile: Optional[Dict[str, float]] = None,
+    conversation_summary: Optional[str] = None
 ) -> str:
     """
     Build a clean, natural prompt for Qwen3-4B.
@@ -84,15 +87,52 @@ def build_nura_prompt(
         retrieved_context: Retrieved memory context (if asking about past)
         time_of_day: morning/afternoon/evening/night
         user_name: User's name if known
+        user_facts: Dict of user facts (occupation, preferences, etc.)
+        adaptation_profile: Dict with warmth, formality (0.0-1.0)
+        conversation_summary: Brief summary of recent conversation
 
     Returns:
         Complete prompt string
     """
     sections = [NURA_IDENTITY]
 
+    # Add tone adjustment from adaptation profile
+    if adaptation_profile:
+        warmth = adaptation_profile.get("warmth", 0.5)
+        formality = adaptation_profile.get("formality", 0.5)
+        # Only add if notably different from neutral
+        tone_hints = []
+        if warmth > 0.7:
+            tone_hints.append("Be extra warm and caring.")
+        elif warmth < 0.3:
+            tone_hints.append("Keep it more reserved.")
+        if formality > 0.7:
+            tone_hints.append("Be more formal.")
+        elif formality < 0.3:
+            tone_hints.append("Be extra casual.")
+        if tone_hints:
+            sections.append("\n" + " ".join(tone_hints))
+
     # Add user name if known
     if user_name:
         sections.append(f"\nYou're talking with {user_name}.")
+
+    # Add key user facts (beyond just name)
+    if user_facts:
+        fact_lines = []
+        # Priority facts to include
+        priority_keys = [
+            "user.occupation", "occupation", "job",
+            "user.location", "location", "city",
+            "user.age", "age",
+        ]
+        for key in priority_keys:
+            if key in user_facts and user_facts[key]:
+                # Clean key name for display
+                display_key = key.replace("user.", "").replace("_", " ").title()
+                fact_lines.append(f"{display_key}: {user_facts[key]}")
+        if fact_lines:
+            sections.append("\nAbout them: " + ", ".join(fact_lines[:3]))
 
     # Add time context naturally
     if time_of_day:
@@ -121,6 +161,13 @@ What you know about them:
         sections.append(f"""
 From past conversations:
 {truncated_retrieval}""")
+
+    # Add recent conversation summary (3-5 turns context)
+    if conversation_summary:
+        truncated_summary = _truncate_words(conversation_summary, 100)  # ~130 tokens
+        sections.append(f"""
+Recent conversation:
+{truncated_summary}""")
 
     # Add user input with budget enforcement
     truncated_input = _truncate_words(user_input, _MAX_USER_INPUT_WORDS)
