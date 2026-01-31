@@ -210,6 +210,7 @@ class BackboneContext:
     temporal_context: Optional[Dict[str, Any]] = None
     temporal_rewrite: Optional[Dict[str, Any]] = None
     retrieval_result: Optional[Any] = None
+    recent_memories: Optional[List[str]] = None  # Memory summaries for prompt
 
     # Deferred operations
     memory_task_id: Optional[str] = None
@@ -806,6 +807,18 @@ class BackboneLayer:
                 print(f"[Backbone] Retrieval failed: {e}")
             ctx.timing["retrieval"] = (time.perf_counter() - retrieval_start) * 1000
 
+        # === RECENT MEMORIES (for prompt context) ===
+        if self._memory_store:
+            try:
+                recent = self._memory_store.recent(user_id, k=5)
+                ctx.recent_memories = [
+                    mem.get("content", "")[:150]
+                    for mem in recent
+                    if mem.get("content")
+                ]
+            except Exception:
+                ctx.recent_memories = []
+
         ctx.timing["critical_total"] = (time.perf_counter() - start_time) * 1000
         return ctx
 
@@ -1262,10 +1275,10 @@ class BackboneLayer:
                     time_of_day = t
                     break
 
-        # Build clean prompt
+        # Build clean prompt with memories
         return build_nura_prompt(
             user_input=ctx.user_input,
-            memories=None,  # Memories loaded separately if needed
+            memories=ctx.recent_memories,
             retrieved_context=retrieved_context,
             time_of_day=time_of_day
         )

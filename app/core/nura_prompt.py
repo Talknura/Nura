@@ -48,6 +48,20 @@ You are Nura."""
 # PROMPT BUILDER
 # =============================================================================
 
+# Token budget limits (words, ~1.3 tokens/word)
+_MAX_MEMORY_WORDS = 300      # ~400 tokens
+_MAX_RETRIEVAL_WORDS = 225   # ~300 tokens
+_MAX_USER_INPUT_WORDS = 225  # ~300 tokens
+
+
+def _truncate_words(text: str, max_words: int) -> str:
+    """Truncate text to max words."""
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]) + "..."
+
+
 def build_nura_prompt(
     user_input: str,
     memories: Optional[List[str]] = None,
@@ -57,6 +71,12 @@ def build_nura_prompt(
 ) -> str:
     """
     Build a clean, natural prompt for Qwen3-4B.
+
+    Enforces token budgets:
+    - System: ~152 tokens (fixed)
+    - Memory: max 400 tokens
+    - Retrieval: max 300 tokens
+    - User input: max 300 tokens
 
     Args:
         user_input: What the user just said
@@ -85,22 +105,27 @@ def build_nura_prompt(
         if time_of_day in time_phrases:
             sections.append(f"\n{time_phrases[time_of_day]}")
 
-    # Add memories as things you know (friend context)
+    # Add memories with budget enforcement
     if memories and any(memories):
-        memory_text = "\n".join(f"- {m}" for m in memories if m)
+        # Limit to 5 memories, truncate total to budget
+        limited_memories = [m[:150] for m in memories[:5] if m]
+        memory_text = "\n".join(f"- {m}" for m in limited_memories)
+        memory_text = _truncate_words(memory_text, _MAX_MEMORY_WORDS)
         sections.append(f"""
 What you know about them:
 {memory_text}""")
 
-    # Add retrieved context for recall questions
+    # Add retrieved context with budget enforcement
     if retrieved_context:
+        truncated_retrieval = _truncate_words(retrieved_context, _MAX_RETRIEVAL_WORDS)
         sections.append(f"""
 From past conversations:
-{retrieved_context}""")
+{truncated_retrieval}""")
 
-    # Add user input
+    # Add user input with budget enforcement
+    truncated_input = _truncate_words(user_input, _MAX_USER_INPUT_WORDS)
     sections.append(f"""
-User: {user_input}
+User: {truncated_input}
 Nura:""")
 
     return "\n".join(sections)
