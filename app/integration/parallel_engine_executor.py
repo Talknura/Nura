@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 from app.temporal.temporal_engine import TemporalEngine, temporal_tags_from_dt
-from app.guards.safety_layer import SafetyDecision
 
 
 @dataclass

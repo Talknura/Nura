@@ -181,10 +181,10 @@ You are Nura, a caring AI companion. Be concise and friendly.<|im_end|>
 
 """
 
-        # Generate response
+        # Generate response (100 tokens = ~800ms target for voice)
         try:
             response = ""
-            for chunk in llm.stream_generate(prompt):
+            for chunk in llm.stream_generate(prompt, max_tokens=100):
                 if chunk.is_final:
                     response = chunk.text
                     break
@@ -374,7 +374,7 @@ You are Nura, a caring AI companion. Be concise and friendly.<|im_end|>
 
         try:
             response = ""
-            for chunk in llm.stream_generate(prompt):
+            for chunk in llm.stream_generate(prompt, max_tokens=50):
                 if chunk.is_final:
                     response = chunk.text
                     break
