@@ -102,8 +102,7 @@ class LLMService:
         memories: List[Dict],
         temporal_tags: List[str],
         emotion: str,
-        use_gpt4: bool = True,
-        llm_input: Optional[Dict[str, Any]] = None
+        **kwargs  # Absorb legacy params (use_gpt4, llm_input) without breaking callers
     ) -> str:
         """
         Generate AI response using Qwen3-4B.
@@ -115,7 +114,6 @@ class LLMService:
             memories: List of relevant memories from retrieval engine
             temporal_tags: Temporal context (morning, night, etc.)
             emotion: Emotion label from upstream (anxious, grateful, etc.)
-            use_gpt4: Ignored (kept for compatibility)
 
         Returns:
             str: Generated response text
