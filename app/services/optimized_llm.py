@@ -78,9 +78,13 @@ class Qwen3StreamingLLM(PhiStreamingLLM):
             max_new_tokens=max_new_tokens
         )
 
-    def stream_generate(self, prompt: str) -> Iterator[LLMChunk]:
+    def stream_generate(self, prompt: str, max_tokens: Optional[int] = None) -> Iterator[LLMChunk]:
         """
         Stream generate tokens from prompt.
+
+        Args:
+            prompt: The prompt to generate from
+            max_tokens: Override default max_new_tokens (use for thinking mode)
 
         Yields LLMChunk with accumulated text as tokens arrive.
         Use with SentenceBuffer for TTS streaming.
@@ -89,10 +93,13 @@ class Qwen3StreamingLLM(PhiStreamingLLM):
         start = time.perf_counter()
         acc = ""
 
+        # Use override or default
+        tokens_limit = max_tokens if max_tokens is not None else self.max_new_tokens
+
         # Qwen3 optimized parameters
         for chunk in llama(
             prompt,
-            max_tokens=self.max_new_tokens,
+            max_tokens=tokens_limit,
             temperature=0.7,  # Balanced for conversation
             top_p=0.9,
             stream=True,

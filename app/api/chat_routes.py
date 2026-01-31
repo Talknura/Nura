@@ -684,3 +684,139 @@ async def clear_memories(user_id: str):
     except Exception as e:
         print(f"[NURA] Error clearing memories: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# VERBOSE ENDPOINT - Shows Nura's reasoning (opt-in for power users)
+# =============================================================================
+
+class VerboseChatRequest(BaseModel):
+    """Request model for verbose chat endpoint."""
+    message: str
+    mode: str = "spiritual"
+    user_id: str = "default_user"
+    log_thinking: bool = True  # Whether to also log to file
+
+
+class VerboseChatResponse(BaseModel):
+    """Response model showing both thinking and response."""
+    response: str
+    thinking: str
+    emotion: str
+    memory_count: int
+    temporal_tags: list
+    processing_time_ms: float
+
+
+@router.post("/chat/verbose", response_model=VerboseChatResponse)
+async def chat_verbose(request: VerboseChatRequest):
+    """
+    Verbose chat endpoint - returns Nura's thinking alongside response.
+
+    This endpoint enables Qwen3's thinking mode and captures the model's
+    reasoning process. Use this for:
+    - Debugging and understanding Nura's responses
+    - Collecting training data for engine improvements
+    - Power users who want to see "how Nura thinks"
+
+    WARNING: This endpoint is SLOWER than /chat (includes thinking overhead).
+    Do not use for production voice pipeline - use /chat instead.
+
+    Returns JSON with:
+    - response: The actual response text
+    - thinking: The model's internal reasoning
+    - emotion: Detected emotion
+    - memory_count: Number of retrieved memories
+    - temporal_tags: Temporal context tags
+    - processing_time_ms: Total processing time
+    """
+    import time
+    start_time = time.perf_counter()
+
+    try:
+        print("=" * 60)
+        print(f"[NURA VERBOSE] NEW REQUEST")
+        print(f"[NURA VERBOSE] Message: {request.message}")
+        print(f"[NURA VERBOSE] Mode: {request.mode}")
+        print("=" * 60)
+
+        # Get engines
+        embedding_service, memory_engine, temporal_engine, adaptation_engine, retrieval_engine = get_engines()
+
+        user_id = _parse_user_id(request.user_id)
+
+        # Get temporal context
+        temporal_tags = []
+        if temporal_engine:
+            try:
+                temporal_tags = temporal_engine.get_temporal_tags()
+            except Exception as e:
+                print(f"[VERBOSE] Temporal engine error: {e}")
+
+        # Get adaptation profile
+        profile = {"warmth": 0.5, "formality": 0.5, "initiative": 0.5}
+        if adaptation_engine:
+            try:
+                profile = adaptation_engine.get_profile(user_id)
+            except Exception as e:
+                print(f"[VERBOSE] Adaptation engine error: {e}")
+
+        # Get emotion
+        emotion = "neutral"
+        if adaptation_engine:
+            try:
+                from app.adaptation.breakthrough_detector import detect_breakthrough
+                _, detected_emotion = detect_breakthrough(request.message, user_id)
+                if detected_emotion:
+                    emotion = detected_emotion
+            except Exception as e:
+                print(f"[VERBOSE] Emotion detection error: {e}")
+
+        # Retrieve memories
+        memories = []
+        if retrieval_engine:
+            try:
+                retrieval_result = retrieval_engine.retrieve(
+                    query=request.message,
+                    user_id=user_id,
+                    top_k=5
+                )
+                memories = retrieval_result.hits if retrieval_result else []
+            except Exception as e:
+                print(f"[VERBOSE] Retrieval error: {e}")
+
+        # Generate response WITH thinking
+        from app.services.llm_service import get_llm_service
+        llm_service = get_llm_service()
+
+        response_text, thinking_content = llm_service.generate_with_thinking(
+            user_message=request.message,
+            mode=request.mode,
+            profile=profile,
+            memories=memories,
+            temporal_tags=temporal_tags,
+            emotion=emotion,
+            log_thinking=request.log_thinking
+        )
+
+        # Sanitize response
+        response_text = sanitize_text(response_text)
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        print(f"[NURA VERBOSE] Response generated in {elapsed_ms:.0f}ms")
+        print(f"[NURA VERBOSE] Thinking length: {len(thinking_content)} chars")
+
+        return VerboseChatResponse(
+            response=response_text,
+            thinking=thinking_content,
+            emotion=emotion,
+            memory_count=len(memories),
+            temporal_tags=temporal_tags,
+            processing_time_ms=elapsed_ms
+        )
+
+    except Exception as e:
+        print(f"[NURA VERBOSE] Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
