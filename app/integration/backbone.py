@@ -71,9 +71,12 @@ import numpy as np
 # Memory Engine
 try:
     from app.memory import get_memory_store
+    from app.memory.memory_store import get_facts
     MEMORY_AVAILABLE = True
 except ImportError:
     MEMORY_AVAILABLE = False
+    def get_facts(user_id: int) -> dict:
+        return {}
 
 # Retrieval Engine
 try:
@@ -211,6 +214,9 @@ class BackboneContext:
     temporal_rewrite: Optional[Dict[str, Any]] = None
     retrieval_result: Optional[Any] = None
     recent_memories: Optional[List[str]] = None  # Memory summaries for prompt
+    user_name: Optional[str] = None  # User's name from facts
+    user_facts: Optional[Dict[str, str]] = None  # All user facts
+    adaptation_profile: Optional[Dict[str, float]] = None  # warmth, formality, etc.
 
     # Deferred operations
     memory_task_id: Optional[str] = None
@@ -819,6 +825,26 @@ class BackboneLayer:
             except Exception:
                 ctx.recent_memories = []
 
+        # === USER FACTS (name, preferences) ===
+        try:
+            ctx.user_facts = get_facts(user_id)
+            # Try multiple possible name keys
+            ctx.user_name = (
+                ctx.user_facts.get("user.preferred_name") or
+                ctx.user_facts.get("user.name") or
+                ctx.user_facts.get("name")
+            )
+        except Exception:
+            ctx.user_facts = {}
+            ctx.user_name = None
+
+        # === ADAPTATION PROFILE ===
+        if self._adaptation_engine:
+            try:
+                ctx.adaptation_profile = self._adaptation_engine.get_profile(user_id)
+            except Exception:
+                ctx.adaptation_profile = None
+
         ctx.timing["critical_total"] = (time.perf_counter() - start_time) * 1000
         return ctx
 
@@ -1275,12 +1301,13 @@ class BackboneLayer:
                     time_of_day = t
                     break
 
-        # Build clean prompt with memories
+        # Build clean prompt with memories and user context
         return build_nura_prompt(
             user_input=ctx.user_input,
             memories=ctx.recent_memories,
             retrieved_context=retrieved_context,
-            time_of_day=time_of_day
+            time_of_day=time_of_day,
+            user_name=ctx.user_name
         )
 
     def _synthesize_and_output(self, text: str, on_audio: Callable[[bytes], None]) -> None:
