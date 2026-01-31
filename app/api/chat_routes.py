@@ -84,6 +84,9 @@ from app.integration.parallel_engine_executor import (
     create_parallel_executor
 )
 
+# Proactive cooldown state (in-memory for now, could move to DB)
+_proactive_cooldown_state = {}
+
 router = APIRouter()
 
 # OPTIMIZATION: Global parallel executor (initialized lazily)
@@ -359,14 +362,34 @@ async def chat(request: ChatRequest):
               f"retrieval={memory_count} hits, emotion={emotion}")
 
         # ============================================
+        # PROACTIVE ENGINE: "My AI asked me things I thought it forgot"
+        # ============================================
+        proactive_question = ""
+        if retrieval_result.hits:
+            # Build temporal context dict from tags
+            temporal_ctx_dict = {}
+            for tag in temporal_tags:
+                if "=" in tag:
+                    k, v = tag.split("=", 1)
+                    temporal_ctx_dict[k] = v
+                elif isinstance(temporal_tags, dict):
+                    temporal_ctx_dict = temporal_tags
+                    break
+
+            proactive_question = _get_proactive_question(
+                user_id=user_id,
+                memories=retrieval_result.hits,
+                temporal_context=temporal_ctx_dict,
+                now=now
+            )
+
+        # ============================================
         # STEP 4: NURA BRAIN - RESPOND (Local LLM)
         # ============================================
         print(f"[BRAIN] Generating response (local LLM)...")
         tracker.start("generation")
 
         try:
-            # OPTIMIZATION: Removed proactive engine (stubbed cooldown, deferred to Phase 6+)
-            # OPTIMIZATION: Removed blocking engine context logging (use async if needed)
             if request.thinking_mode:
                 # Thinking mode: capture reasoning to logs/thinking/
                 plain_text_response, _ = llm_service.generate_with_thinking(
@@ -389,6 +412,12 @@ async def chat(request: ChatRequest):
                     use_gpt4=False
                 )
             response_text = sanitize_text(plain_text_response)
+
+            # Prepend proactive question if we have one (viral moment!)
+            if proactive_question:
+                response_text = f"{proactive_question}\n\n{response_text}"
+                print(f"[BRAIN] Added proactive question to response")
+
             plain_text_response = response_text
             primary_emotion = None
             secondary_emotion = None
@@ -404,6 +433,12 @@ async def chat(request: ChatRequest):
                 emotion=emotion
             )
             response_text = sanitize_text(plain_text_response)
+
+            # Prepend proactive question if we have one (viral moment!)
+            if proactive_question:
+                response_text = f"{proactive_question}\n\n{response_text}"
+                print(f"[BRAIN] Added proactive question to fallback response")
+
             plain_text_response = response_text
             primary_emotion = None
             secondary_emotion = None
@@ -651,6 +686,108 @@ def _map_signals_to_emotion(signals) -> str:
         return "hopeful"
     else:
         return "neutral"
+
+
+def _generate_proactive_question(memory: dict, question_type: str) -> str:
+    """
+    Generate a natural-sounding proactive question about a memory.
+
+    This is what creates the "viral moment" - Nura remembering and asking
+    about something the user thought she forgot.
+    """
+    # Get the memory content
+    content = memory.get("content") or memory.get("text") or ""
+    if not content:
+        return ""
+
+    # Truncate for natural phrasing
+    content = content[:100].strip()
+    if len(content) > 80:
+        content = content[:content.rfind(" ", 0, 80)] + "..."
+
+    if question_type == "anniversary":
+        # Milestone/anniversary recognition
+        templates = [
+            f"I was just thinking about when you mentioned \"{content}\"... how's that going now?",
+            f"Remember when you told me about \"{content}\"? I've been wondering how things turned out.",
+        ]
+    elif question_type == "follow_up":
+        # Task/promise follow-up
+        templates = [
+            f"Hey, you mentioned \"{content}\" a while back. Did that work out?",
+            f"I've been thinking about what you said about \"{content}\"... any updates?",
+        ]
+    else:  # check_in
+        # General check-in
+        templates = [
+            f"You once shared that \"{content}\"... I've been thinking about that. How are you feeling about it now?",
+            f"I remember you telling me \"{content}\"... is that still on your mind?",
+        ]
+
+    import random
+    return random.choice(templates)
+
+
+def _get_proactive_question(
+    user_id: int,
+    memories: list,
+    temporal_context: dict,
+    now: datetime
+) -> str:
+    """
+    Check if we should ask a proactive question about past memories.
+
+    This is the "My AI asked me things I thought it forgot" viral feature.
+    """
+    global _proactive_cooldown_state
+
+    if not memories:
+        return ""
+
+    # Build cooldown state for this user
+    user_key = str(user_id)
+    cooldown = _proactive_cooldown_state.get(user_key, {})
+
+    # Build payload for proactive engine
+    payload = {
+        "user_id": user_key,
+        "now_timestamp": now.isoformat(),
+        "recent_memories": memories,
+        "cooldown_state": cooldown,
+        "temporal_context": temporal_context,
+    }
+
+    try:
+        result = decide_followup(payload)
+
+        if result.get("should_ask"):
+            # Update cooldown state
+            _proactive_cooldown_state[user_key] = {
+                "last_asked_at": now.isoformat(),
+                "asks_today": cooldown.get("asks_today", 0) + 1,
+            }
+
+            # Find the memory that triggered this
+            memory_id = result.get("memory_id")
+            question_type = result.get("question_type", "check_in")
+
+            # Find the memory by ID
+            target_memory = None
+            for mem in memories:
+                if str(mem.get("memory_id")) == str(memory_id):
+                    target_memory = mem
+                    break
+
+            if target_memory:
+                question = _generate_proactive_question(target_memory, question_type)
+                if question:
+                    print(f"[PROACTIVE] Triggering {question_type} about memory {memory_id}")
+                    return question
+
+    except Exception as e:
+        print(f"[PROACTIVE] Error: {e}")
+
+    return ""
 
 
 # ============================================
