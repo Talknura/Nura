@@ -59,13 +59,13 @@ def sanitize_header(text: str, max_length: int = 500) -> str:
     if len(text) > max_length:
         text = text[:max_length - 3] + '...'
     return text.strip()
-from app.temporal.temporal_engine import TemporalEngine, get_temporal_engine
+from app.temporal.temporal_engine import TemporalEngine
 from app.adaptation.adaptation_engine import AdaptationEngine
 from app.adaptation.breakthrough_detector import detect_breakthrough
-from app.retrieval.retrieval_engine import RetrievalEngine, RetrievalState, RetrievalResult
+from app.retrieval.retrieval_engine import RetrievalEngine, RetrievalResult
 from app.retrieval.retrieval_strategies import RetrievalStrategy, QueryAnalysis
 from app.vector.embedding_service import EmbeddingService
-from app.metrics.relationship_metrics import ConversationMetrics
+# Note: ConversationMetrics is used inside ParallelEngineExecutor, not here
 from app.services.voice_service import get_voice_service
 from app.services.llm_service import get_llm_service
 from app.services.ssml_generator import generate_ssml
